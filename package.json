@@ -1,0 +1,36 @@
+{
+  "name": "adera-validator-dashboard-api",
+  "version": "1.0.0",
+  "description": "Complete API backend for Adera Validator and Delegator Dashboard",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "bun run server.js",
+    "dev": "bun --watch run server.js",
+    "build": "bun build server.js --outdir ./build --target bun",
+    "test": "bun test",
+    "lint": "eslint src/",
+    "format": "prettier --write src/"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "0.8.0",
+    "elysia": "0.8.0",
+    "ethers": "6.8.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "prettier": "^3.0.0",
+    "eslint": "^8.0.0"
+  },
+  "keywords": [
+    "validator",
+    "staking",
+    "blockchain",
+    "api",
+    "bun",
+    "elysia"
+  ],
+  "author": "Adera Network",
+  "license": "MIT"
+}
