@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { ValidatorService } from "../services/validator.js";
 import { responseWrapper } from "../utils/response.js";
 import { validateAddress } from "../utils/validation.js";
+import { BlockchainService } from "../services/blockchain.js";
 
 const validatorService = new ValidatorService();
 
@@ -118,18 +119,13 @@ export const validatorRoutes = new Elysia({ prefix: '/api/validators' })
     try {
       const { address } = params;
       
-      // Validate address
       if (!validateAddress(address)) {
         return responseWrapper.error('Invalid validator address');
       }
 
       const validatorDetails = await validatorService.getValidatorDetails(address);
-      
-      // Get additional performance metrics
       const constants = await validatorService.getContractConstants();
       const currentBlock = await BlockchainService.getCurrentBlock();
-      
-      // Calculate if can withdraw rewards
       const canWithdrawRewards = validatorDetails.lastWithdrawRewardBlock ? 
         (currentBlock - validatorDetails.lastWithdrawRewardBlock) >= constants.withdrawRewardPeriod : 
         true;
@@ -138,8 +134,8 @@ export const validatorRoutes = new Elysia({ prefix: '/api/validators' })
         ...validatorDetails,
         canWithdrawRewards,
         performance: {
-          uptime: validatorDetails.isJailed ? '0%' : '100%', // Simplified
-          missedBlocks: 0, // Would need historical tracking
+          uptime: validatorDetails.isJailed ? '0%' : '100%',
+          missedBlocks: 0,
           lastWithdrawRewardBlock: validatorDetails.lastWithdrawRewardBlock || 0
         },
         network: {
@@ -157,7 +153,6 @@ export const validatorRoutes = new Elysia({ prefix: '/api/validators' })
     })
   })
 
-  // Get validator performance metrics
   .get('/:address/performance', async ({ params }) => {
     try {
       const { address } = params;
@@ -337,6 +332,3 @@ export const validatorRoutes = new Elysia({ prefix: '/api/validators' })
       address: t.String()
     })
   });
-
-// Import BlockchainService at the top level
-import { BlockchainService } from "../services/blockchain.js";

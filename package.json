@@ -15,7 +15,9 @@
   "dependencies": {
     "@elysiajs/cors": "0.8.0",
     "elysia": "0.8.0",
+    "elysia-rate-limit": "^4.4.0",
     "ethers": "6.8.0",
+    "node-fetch": "^3.3.2",
     "zod": "^3.22.0"
   },
   "devDependencies": {

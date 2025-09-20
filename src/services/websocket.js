@@ -13,7 +13,7 @@ export class WebSocketService {
     this.isInitialized = false;
     this.logger = new Logger('WebSocket');
     this.blockLogging = process.env.LOG_BLOCKS === 'true';
-    
+
     this.initialize();
   }
 
@@ -27,10 +27,10 @@ export class WebSocketService {
       );
 
       this.setupEventListeners();
-      
+
       this.isInitialized = true;
       this.logger.success('WebSocket service initialized successfully');
-      
+
     } catch (error) {
       this.logger.error('Failed to initialize WebSocket service:', error);
       this.isInitialized = false;
@@ -40,7 +40,7 @@ export class WebSocketService {
   addClient(ws) {
     this.clients.add(ws);
     this.logger.info(`Client connected (${this.clients.size} total)`);
-    
+
     ws.onclose = () => {
       this.clients.delete(ws);
       this.logger.info(`Client disconnected (${this.clients.size} remaining)`);
@@ -101,7 +101,7 @@ export class WebSocketService {
     try {
       const importantEvents = [
         'ValidatorCreated',
-        'ValidatorUpdated', 
+        'ValidatorUpdated',
         'Staking',
         'Unstake',
         'ValidatorSlash',
@@ -115,13 +115,14 @@ export class WebSocketService {
 
       importantEvents.forEach(eventName => {
         try {
-          const filter = this.contract.filters[eventName]();
-          this.eventFilters.set(eventName, filter);
-          
-          this.contract.on(filter, (...args) => {
+          // FIX: Gunakan langsung event name tanpa filter
+          this.contract.on(eventName, (...args) => {
+            // Event object ada di posisi terakhir
             const event = args[args.length - 1];
             this.handleContractEvent(eventName, event, args);
           });
+
+          this.logger.debug(`Setup listener for ${eventName}`);
         } catch (error) {
           this.logger.warn(`Could not setup listener for ${eventName}:`, error.message);
         }
@@ -141,8 +142,15 @@ export class WebSocketService {
 
   handleContractEvent(eventName, event, args) {
     try {
+      // Log raw args untuk debugging
+      this.logger.debug(`Raw event args for ${eventName}:`, {
+        argsLength: args.length,
+        eventBlock: event?.blockNumber,
+        eventTx: event?.transactionHash
+      });
+
       const parsedData = this.parseEventData(eventName, args);
-      
+
       const eventData = {
         type: 'contractEvent',
         eventName,
@@ -158,18 +166,17 @@ export class WebSocketService {
           block: event.blockNumber,
           tx: event.transactionHash,
           argsLength: args.length,
-          rawArgs: args.slice(0, -1).map((arg, index) => ({ index, type: typeof arg, value: arg.toString() }))
+          error: parsedData.error
         });
       } else {
         this.logger.info(`Contract Event: ${eventName}`, {
           block: event.blockNumber,
-          tx: event.transactionHash,
-          data: parsedData
+          tx: event.transactionHash?.substring(0, 10) + '...'
         });
       }
 
       this.broadcast(eventData);
-      
+
     } catch (error) {
       this.logger.error(`Error handling contract event ${eventName}:`, {
         error: error.message,
@@ -192,7 +199,7 @@ export class WebSocketService {
       }
 
       this.broadcast(blockData);
-      
+
     } catch (error) {
       if (this.blockLogging) {
         this.logger.error('Error handling new block:', error);
@@ -207,7 +214,7 @@ export class WebSocketService {
     try {
       // Remove event object dari args
       const eventArgs = args.slice(0, -1);
-      
+
       // Helper function untuk safely format ether
       const safeFormatEther = (value) => {
         try {
@@ -286,30 +293,44 @@ export class WebSocketService {
           };
 
         case 'RewardDistributed':
-          // Enhanced parsing untuk RewardDistributed event
           try {
-            const validators = eventArgs[0];
-            const rewards = eventArgs[1];
-            const rewardCount = eventArgs[2];
+            // Dengan ethers.js v6, event args langsung tersedia
+            // Args structure: [validators, rewards, rewardCount, eventObject]
+            const validators = args[0];
+            const rewards = args[1];
+            const rewardCount = args[2];
 
-            // Validate array inputs
-            if (!Array.isArray(validators)) {
-              this.logger.debug('RewardDistributed: validators is not an array', { validators, type: typeof validators });
+            this.logger.debug('RewardDistributed raw data:', {
+              validators: {
+                type: typeof validators,
+                isArray: Array.isArray(validators),
+                length: Array.isArray(validators) ? validators.length : 'N/A'
+              },
+              rewards: {
+                type: typeof rewards,
+                isArray: Array.isArray(rewards),
+                length: Array.isArray(rewards) ? rewards.length : 'N/A'
+              },
+              rewardCount: {
+                type: typeof rewardCount,
+                value: rewardCount?.toString()
+              }
+            });
+
+            // Validate arrays
+            if (!validators || !Array.isArray(validators)) {
               return {
-                error: 'Invalid validators data structure',
-                rawValidators: safeToString(validators),
-                rawRewards: safeToString(rewards),
-                rawRewardCount: safeToString(rewardCount)
+                error: 'Invalid validators array',
+                validatorsType: typeof validators,
+                validatorsValue: validators?.toString() || 'undefined'
               };
             }
 
-            if (!Array.isArray(rewards)) {
-              this.logger.debug('RewardDistributed: rewards is not an array', { rewards, type: typeof rewards });
+            if (!rewards || !Array.isArray(rewards)) {
               return {
-                error: 'Invalid rewards data structure',
-                validators: validators.map(v => v.toString()),
-                rawRewards: safeToString(rewards),
-                rawRewardCount: safeToString(rewardCount)
+                error: 'Invalid rewards array',
+                rewardsType: typeof rewards,
+                rewardsValue: rewards?.toString() || 'undefined'
               };
             }
 
@@ -326,23 +347,17 @@ export class WebSocketService {
                 }
               }, 0).toFixed(6)
             };
+
           } catch (rewardError) {
-            this.logger.debug('RewardDistributed parsing error:', {
+            this.logger.error('RewardDistributed parsing error:', {
               error: rewardError.message,
-              argsLength: eventArgs.length,
-              arg0Type: typeof eventArgs[0],
-              arg1Type: typeof eventArgs[1],
-              arg2Type: typeof eventArgs[2]
+              argsLength: args.length,
+              stack: rewardError.stack
             });
-            
+
             return {
               error: 'Failed to parse RewardDistributed event',
-              details: rewardError.message,
-              rawArgs: eventArgs.map((arg, i) => ({
-                index: i,
-                type: typeof arg,
-                value: safeToString(arg)
-              }))
+              details: rewardError.message
             };
           }
 
@@ -390,7 +405,7 @@ export class WebSocketService {
         error: error.message,
         argsLength: args.length
       });
-      
+
       return {
         error: 'Failed to parse event data',
         eventName,
@@ -403,9 +418,9 @@ export class WebSocketService {
   handleMessage(ws, message) {
     try {
       const data = JSON.parse(message);
-      
+
       this.logger.debug('WebSocket message received:', { type: data.type });
-      
+
       switch (data.type) {
         case 'ping':
           this.sendToClient(ws, {
@@ -413,7 +428,7 @@ export class WebSocketService {
             timestamp: new Date().toISOString()
           });
           break;
-          
+
         case 'getStats':
           this.sendStats(ws);
           break;
@@ -426,7 +441,7 @@ export class WebSocketService {
             timestamp: new Date().toISOString()
           });
           break;
-          
+
         default:
           this.logger.warn(`Unknown WebSocket message type: ${data.type}`);
           this.sendToClient(ws, {
@@ -435,7 +450,7 @@ export class WebSocketService {
             timestamp: new Date().toISOString()
           });
       }
-      
+
     } catch (error) {
       this.logger.error('Error parsing WebSocket message:', error);
       this.sendToClient(ws, {
@@ -456,7 +471,7 @@ export class WebSocketService {
       },
       timestamp: new Date().toISOString()
     };
-    
+
     this.sendToClient(ws, stats);
   }
 
@@ -472,7 +487,7 @@ export class WebSocketService {
 
   destroy() {
     this.logger.info('Destroying WebSocket service...');
-    
+
     this.clients.forEach(client => {
       try {
         client.close();
@@ -481,16 +496,16 @@ export class WebSocketService {
       }
     });
     this.clients.clear();
-    
-    this.eventFilters.forEach((filter, eventName) => {
+
+    // FIX: Remove event listeners properly
+    if (this.contract) {
       try {
-        this.contract.removeAllListeners(filter);
+        this.contract.removeAllListeners();
       } catch (error) {
-        this.logger.error(`Error removing listener for ${eventName}:`, error);
+        this.logger.error('Error removing contract listeners:', error);
       }
-    });
-    this.eventFilters.clear();
-    
+    }
+
     if (this.provider) {
       try {
         this.provider.removeAllListeners();
@@ -498,7 +513,7 @@ export class WebSocketService {
         this.logger.error('Error removing provider listeners:', error);
       }
     }
-    
+
     this.isInitialized = false;
     this.logger.success('WebSocket service destroyed');
   }
